@@ -2,6 +2,7 @@ package com.example.ssk
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -10,7 +11,9 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Message
 import android.provider.MediaStore
 import android.view.View
@@ -31,6 +34,16 @@ import java.io.File
 class MainActivity : AppCompatActivity() {
 
     private val homeUrl = "https://sistema.novaledbolivia.com/"
+
+    private data class PendingDownload(
+        val url: String,
+        val userAgent: String?,
+        val contentDisposition: String?,
+        val mimetype: String?,
+        val contentLength: Long,
+        val fileName: String
+    )
+
     private lateinit var webView: WebView
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var loadingLayout: LinearLayout
@@ -44,6 +57,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingWebPermissionRequest: PermissionRequest? = null
     private var geolocationRequestOrigin: String? = null
     private var geolocationCallback: GeolocationPermissions.Callback? = null
+    private var pendingDownload: PendingDownload? = null
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -79,6 +93,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val cameraPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        if (!isGranted) {
+            Toast.makeText(this, R.string.permission_camera_denied, Toast.LENGTH_LONG).show()
+        }
         openFileChooser(pendingFileChooserParams, isGranted)
         pendingFileChooserParams = null
     }
@@ -100,19 +117,32 @@ class MainActivity : AppCompatActivity() {
                 request.grant(grantedResources.toTypedArray())
             } else {
                 request.deny()
+                Toast.makeText(this, R.string.permission_media_denied, Toast.LENGTH_LONG).show()
             }
         }
     }
 
     private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-        val granted = permissions.entries.all { it.value }
+        val granted = permissions.values.any { it }
         if (granted) {
             geolocationCallback?.invoke(geolocationRequestOrigin, true, false)
         } else {
             geolocationCallback?.invoke(geolocationRequestOrigin, false, false)
+            Toast.makeText(this, R.string.permission_location_denied, Toast.LENGTH_LONG).show()
         }
         geolocationCallback = null
         geolocationRequestOrigin = null
+    }
+
+    private val downloadPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        val download = pendingDownload
+        pendingDownload = null
+
+        if (isGranted && download != null) {
+            startDownload(download)
+        } else {
+            Toast.makeText(this, R.string.permission_download_denied, Toast.LENGTH_LONG).show()
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -189,6 +219,17 @@ class MainActivity : AppCompatActivity() {
                 // Bloquear navegacion directa a endpoints de API/JSON o respuestas Inertia.
                 if (request?.isForMainFrame == true && isJsonMainFrameRequest(request)) {
                     returnToSafePage(view)
+                    return true
+                }
+                if (request?.isForMainFrame == true && isDocumentUrl(request.url?.toString().orEmpty())) {
+                    val url = request.url.toString()
+                    handleDownload(
+                        url = url,
+                        userAgent = request.requestHeaders["User-Agent"] ?: webView.settings.userAgentString,
+                        contentDisposition = null,
+                        mimetype = guessMimeType(url),
+                        contentLength = -1
+                    )
                     return true
                 }
                 return false
@@ -282,7 +323,17 @@ class MainActivity : AppCompatActivity() {
 
                 if (!hasCameraPerm) {
                     pendingFileChooserParams = fileChooserParams
-                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                    showPermissionExplanation(
+                        title = getString(R.string.permission_camera_title),
+                        message = getString(R.string.permission_camera_message),
+                        onAccepted = {
+                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                        },
+                        onDeclined = {
+                            openFileChooser(pendingFileChooserParams, false)
+                            pendingFileChooserParams = null
+                        }
+                    )
                 } else {
                     openFileChooser(fileChooserParams, true)
                 }
@@ -306,9 +357,34 @@ class MainActivity : AppCompatActivity() {
 
                 if (permissionsToRequest.isNotEmpty()) {
                     pendingWebPermissionRequest = request
-                    webMediaPermissionLauncher.launch(permissionsToRequest.toTypedArray())
+                    showPermissionExplanation(
+                        title = getString(R.string.permission_media_title),
+                        message = getString(R.string.permission_media_message),
+                        onAccepted = {
+                            webMediaPermissionLauncher.launch(permissionsToRequest.toTypedArray())
+                        },
+                        onDeclined = {
+                            pendingWebPermissionRequest?.deny()
+                            pendingWebPermissionRequest = null
+                        }
+                    )
                 } else {
-                    request.grant(resources)
+                    showPermissionExplanation(
+                        title = getString(R.string.permission_media_title),
+                        message = getString(R.string.permission_media_message),
+                        onAccepted = {
+                            request.grant(resources)
+                        },
+                        onDeclined = {
+                            request.deny()
+                        }
+                    )
+                }
+            }
+
+            override fun onPermissionRequestCanceled(request: PermissionRequest?) {
+                if (pendingWebPermissionRequest == request) {
+                    pendingWebPermissionRequest = null
                 }
             }
 
@@ -321,13 +397,31 @@ class MainActivity : AppCompatActivity() {
                     Manifest.permission.ACCESS_COARSE_LOCATION
                 )
 
-                if (permissions.all { ContextCompat.checkSelfPermission(this@MainActivity, it) == PackageManager.PERMISSION_GRANTED }) {
-                    callback?.invoke(origin, true, false)
-                } else {
-                    geolocationRequestOrigin = origin
-                    geolocationCallback = callback
-                    requestPermissionLauncher.launch(permissions)
-                }
+                geolocationRequestOrigin = origin
+                geolocationCallback = callback
+
+                showPermissionExplanation(
+                    title = getString(R.string.permission_location_title),
+                    message = getString(R.string.permission_location_message),
+                    onAccepted = {
+                        val missingPermissions = permissions.filter {
+                            ContextCompat.checkSelfPermission(this@MainActivity, it) != PackageManager.PERMISSION_GRANTED
+                        }
+
+                        if (missingPermissions.isEmpty()) {
+                            geolocationCallback?.invoke(geolocationRequestOrigin, true, false)
+                            geolocationCallback = null
+                            geolocationRequestOrigin = null
+                        } else {
+                            requestPermissionLauncher.launch(missingPermissions.toTypedArray())
+                        }
+                    },
+                    onDeclined = {
+                        geolocationCallback?.invoke(geolocationRequestOrigin, false, false)
+                        geolocationCallback = null
+                        geolocationRequestOrigin = null
+                    }
+                )
             }
         }
 
@@ -432,53 +526,76 @@ class MainActivity : AppCompatActivity() {
         mimetype: String?,
         contentLength: Long
     ) {
-        val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
-        if (isBlockedAutomaticDownload(url, contentDisposition, mimetype, fileName)) {
-            Toast.makeText(this, "Descarga automatica de PDF bloqueada", Toast.LENGTH_SHORT).show()
+        val fileName = sanitizeFileName(URLUtil.guessFileName(url, contentDisposition, mimetype))
+        val download = PendingDownload(url, userAgent, contentDisposition, mimetype, contentLength, fileName)
+
+        if (needsLegacyDownloadPermission() &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingDownload = download
+            showPermissionExplanation(
+                title = getString(R.string.permission_download_title),
+                message = getString(R.string.permission_download_message),
+                onAccepted = {
+                    downloadPermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                },
+                onDeclined = {
+                    pendingDownload = null
+                }
+            )
             return
         }
 
-        val dlRequest = DownloadManager.Request(Uri.parse(url))
-        CookieManager.getInstance().getCookie(url)?.let { cookie ->
-            dlRequest.addRequestHeader("Cookie", cookie)
-        }
-        dlRequest.addRequestHeader("User-Agent", userAgent ?: webView.settings.userAgentString)
-        if (!mimetype.isNullOrBlank()) {
-            dlRequest.setMimeType(mimetype)
-        }
-        if (fileName.isNotBlank()) {
-            dlRequest.setTitle(fileName)
-        }
-        if (contentLength > 0) {
-            dlRequest.setDescription("Descargando archivo")
-        }
-        dlRequest.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
-        dm.enqueue(dlRequest)
-        Toast.makeText(this, "Descargando archivo...", Toast.LENGTH_SHORT).show()
+        startDownload(download)
     }
 
-    private fun isBlockedAutomaticDownload(
-        url: String,
-        contentDisposition: String?,
-        mimetype: String?,
-        fileName: String
-    ): Boolean {
-        val lowerUrl = url.lowercase()
-        val lowerDisposition = contentDisposition?.lowercase().orEmpty()
-        val lowerMime = mimetype?.lowercase().orEmpty()
-        val lowerFileName = fileName.lowercase()
+    private fun startDownload(download: PendingDownload) {
+        try {
+            val dlRequest = DownloadManager.Request(Uri.parse(download.url))
+            CookieManager.getInstance().getCookie(download.url)?.let { cookie ->
+                dlRequest.addRequestHeader("Cookie", cookie)
+            }
+            dlRequest.addRequestHeader("User-Agent", download.userAgent ?: webView.settings.userAgentString)
+            if (!download.mimetype.isNullOrBlank()) {
+                dlRequest.setMimeType(download.mimetype)
+            }
+            dlRequest.setTitle(download.fileName)
+            dlRequest.setDescription(getString(R.string.download_description))
+            dlRequest.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, download.fileName)
+            dlRequest.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
 
-        val looksLikePdf = lowerMime.contains("pdf") ||
-                lowerDisposition.contains(".pdf") ||
-                lowerUrl.endsWith(".pdf") ||
-                lowerUrl.contains(".pdf?") ||
-                lowerFileName.endsWith(".pdf")
+            val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+            dm.enqueue(dlRequest)
+            Toast.makeText(this, getString(R.string.download_started, download.fileName), Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, R.string.download_failed, Toast.LENGTH_LONG).show()
+        }
+    }
 
-        val looksLikeBin = lowerFileName.endsWith(".bin") ||
-                lowerDisposition.contains(".bin")
+    private fun needsLegacyDownloadPermission(): Boolean {
+        return Build.VERSION.SDK_INT <= Build.VERSION_CODES.P
+    }
 
-        return looksLikePdf || looksLikeBin
+    private fun sanitizeFileName(fileName: String): String {
+        val safeName = fileName
+            .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            .trim()
+
+        return safeName.ifBlank { "archivo_descargado" }
+    }
+
+    private fun showPermissionExplanation(
+        title: String,
+        message: String,
+        onAccepted: () -> Unit,
+        onDeclined: () -> Unit = {}
+    ) {
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton(R.string.permission_continue) { _, _ -> onAccepted() }
+            .setNegativeButton(R.string.permission_cancel) { _, _ -> onDeclined() }
+            .show()
     }
 
     private fun returnToSafePage(view: WebView?) {
@@ -550,6 +667,21 @@ class MainActivity : AppCompatActivity() {
                lower.contains("x-inertia") || // cabeceras Inertia
                lower.contains("/fetch") ||    // rutas de fetch genéricas
                lower.contains("/data")        // rutas de datos
+    }
+
+    private fun isDocumentUrl(url: String): Boolean {
+        val path = runCatching { Uri.parse(url).path.orEmpty().lowercase() }.getOrDefault(url.lowercase())
+        val documentExtensions = listOf(
+            ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+            ".csv", ".txt", ".rtf", ".odt", ".ods", ".odp"
+        )
+
+        return documentExtensions.any { path.endsWith(it) }
+    }
+
+    private fun guessMimeType(url: String): String? {
+        val extension = MimeTypeMap.getFileExtensionFromUrl(url)
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.lowercase())
     }
 
     private fun openFileChooser(fileChooserParams: WebChromeClient.FileChooserParams?, hasCameraPermission: Boolean) {

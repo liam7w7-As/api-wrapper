@@ -5,4 +5,21 @@
     <string name="error_subtitle">Verifica tu conexión e intenta nuevamente.</string>
     <string name="error_retry">Reintentar</string>
     <string name="error_retrying">Conectando…</string>
+    <string name="permission_continue">Continuar</string>
+    <string name="permission_cancel">Cancelar</string>
+    <string name="permission_camera_title">Permiso de cámara</string>
+    <string name="permission_camera_message">Para tomar fotos o subir archivos desde la cámara, acepta el permiso de cámara cuando Android lo solicite.</string>
+    <string name="permission_camera_denied">No se concedió el permiso de cámara. Puedes seleccionar archivos existentes.</string>
+    <string name="permission_media_title">Permiso de cámara y micrófono</string>
+    <string name="permission_media_message">La página quiere usar cámara o micrófono dentro de esta app. Acepta el permiso para continuar.</string>
+    <string name="permission_media_denied">No se concedieron los permisos de cámara o micrófono.</string>
+    <string name="permission_location_title">Permiso de ubicación</string>
+    <string name="permission_location_message">La página quiere usar tu ubicación dentro de esta app. Acepta el permiso de ubicación para continuar.</string>
+    <string name="permission_location_denied">No se concedió el permiso de ubicación.</string>
+    <string name="permission_download_title">Permiso para guardar archivos</string>
+    <string name="permission_download_message">Para guardar documentos en Descargas, acepta el permiso de almacenamiento cuando Android lo solicite.</string>
+    <string name="permission_download_denied">No se concedió el permiso para guardar el archivo.</string>
+    <string name="download_description">Guardando archivo en Descargas</string>
+    <string name="download_started">Descargando %1$s…</string>
+    <string name="download_failed">No se pudo iniciar la descarga.</string>
 </resources>
