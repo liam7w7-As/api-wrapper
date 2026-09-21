@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Azul ballena / whale blue palette -->
+    <color name="purple_200">#A8CBE8</color>
+    <color name="purple_500">#1A5276</color>
+    <color name="purple_700">#154360</color>
+    <color name="teal_200">#5DADE2</color>
+    <color name="teal_700">#1A5276</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <color name="whale_blue">#1A5276</color>
+    <color name="whale_blue_dark">#154360</color>
+    <color name="whale_blue_light">#2E86C1</color>
+    <color name="splash_background">#1A5276</color>
+    <color name="brand_dark">#0D2B3E</color>
+    <color name="text_secondary">#555555</color>
+    <color name="overlay_background">#CCFFFFFF</color>
+</resources>

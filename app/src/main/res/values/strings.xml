@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Novaled</string>
+    <string name="loading_message">Cargando…</string>
+    <string name="error_title">Sin conexión a Internet</string>
+    <string name="error_subtitle">Verifica tu conexión e intenta nuevamente.</string>
+    <string name="error_retry">Reintentar</string>
+    <string name="error_retrying">Conectando…</string>
+</resources>
