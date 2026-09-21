@@ -22,4 +22,11 @@
     <string name="download_description">Guardando archivo en Descargas</string>
     <string name="download_started">Descargando %1$s…</string>
     <string name="download_failed">No se pudo iniciar la descarga.</string>
+    <string name="document_options_title">Documento detectado</string>
+    <string name="document_options_message">Puedes abrir el documento con una app compatible o guardarlo en Descargas.</string>
+    <string name="document_view">Ver</string>
+    <string name="document_download">Descargar</string>
+    <string name="document_open_with">Abrir documento con</string>
+    <string name="document_no_viewer">No hay una app compatible para abrir este documento. Se iniciará la descarga.</string>
+    <string name="document_open_failed">No se pudo abrir el documento. Se iniciará la descarga.</string>
 </resources>

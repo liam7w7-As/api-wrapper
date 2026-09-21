@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.app.DownloadManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -223,7 +224,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 if (request?.isForMainFrame == true && isDocumentUrl(request.url?.toString().orEmpty())) {
                     val url = request.url.toString()
-                    handleDownload(
+                    showDocumentOptions(
                         url = url,
                         userAgent = request.requestHeaders["User-Agent"] ?: webView.settings.userAgentString,
                         contentDisposition = null,
@@ -296,11 +297,51 @@ class MainActivity : AppCompatActivity() {
                         if (request?.isForMainFrame == true && isJsonMainFrameRequest(request)) {
                             return true
                         }
+                        if (request?.isForMainFrame == true) {
+                            val url = request.url?.toString().orEmpty()
+                            if (isDocumentUrl(url)) {
+                                showDocumentOptions(
+                                    url = url,
+                                    userAgent = request.requestHeaders["User-Agent"] ?: webView.settings.userAgentString,
+                                    contentDisposition = null,
+                                    mimetype = guessMimeType(url),
+                                    contentLength = -1
+                                )
+                            } else if (url.isNotBlank()) {
+                                webView.loadUrl(url)
+                            }
+                            view?.destroy()
+                            return true
+                        }
                         return false
+                    }
+
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                        super.onPageStarted(view, url, favicon)
+                        val popupUrl = url.orEmpty()
+                        if (popupUrl.isBlank() || popupUrl == "about:blank") return
+
+                        if (isDocumentUrl(popupUrl)) {
+                            showDocumentOptions(
+                                url = popupUrl,
+                                userAgent = webView.settings.userAgentString,
+                                contentDisposition = null,
+                                mimetype = guessMimeType(popupUrl),
+                                contentLength = -1
+                            )
+                        } else {
+                            webView.loadUrl(popupUrl)
+                        }
+                        view?.stopLoading()
+                        view?.destroy()
                     }
                 }
                 newWebView.setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
-                    handleDownload(url, userAgent, contentDisposition, mimetype, contentLength)
+                    if (isDocumentUrl(url) || mimetype?.contains("pdf", ignoreCase = true) == true) {
+                        showDocumentOptions(url, userAgent, contentDisposition, mimetype, contentLength)
+                    } else {
+                        handleDownload(url, userAgent, contentDisposition, mimetype, contentLength)
+                    }
                 }
                 val transport = resultMsg?.obj as WebView.WebViewTransport
                 transport.webView = newWebView
@@ -426,7 +467,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
-            handleDownload(url, userAgent, contentDisposition, mimetype, contentLength)
+            if (isDocumentUrl(url) || mimetype?.contains("pdf", ignoreCase = true) == true) {
+                showDocumentOptions(url, userAgent, contentDisposition, mimetype, contentLength)
+            } else {
+                handleDownload(url, userAgent, contentDisposition, mimetype, contentLength)
+            }
         }
 
         retryButton.setOnClickListener {
@@ -547,6 +592,47 @@ class MainActivity : AppCompatActivity() {
         }
 
         startDownload(download)
+    }
+
+    private fun showDocumentOptions(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimetype: String?,
+        contentLength: Long
+    ) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.document_options_title)
+            .setMessage(R.string.document_options_message)
+            .setPositiveButton(R.string.document_view) { _, _ ->
+                openDocumentUrl(url, mimetype) {
+                    handleDownload(url, userAgent, contentDisposition, mimetype, contentLength)
+                }
+            }
+            .setNegativeButton(R.string.document_download) { _, _ ->
+                handleDownload(url, userAgent, contentDisposition, mimetype, contentLength)
+            }
+            .setNeutralButton(R.string.permission_cancel, null)
+            .show()
+    }
+
+    private fun openDocumentUrl(url: String, mimetype: String?, onFallbackToDownload: () -> Unit) {
+        val uri = Uri.parse(url)
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mimetype ?: guessMimeType(url) ?: "*/*")
+            addCategory(Intent.CATEGORY_BROWSABLE)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        try {
+            startActivity(Intent.createChooser(viewIntent, getString(R.string.document_open_with)))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, R.string.document_no_viewer, Toast.LENGTH_LONG).show()
+            onFallbackToDownload()
+        } catch (e: Exception) {
+            Toast.makeText(this, R.string.document_open_failed, Toast.LENGTH_LONG).show()
+            onFallbackToDownload()
+        }
     }
 
     private fun startDownload(download: PendingDownload) {
