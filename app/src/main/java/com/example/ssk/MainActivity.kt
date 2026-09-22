@@ -29,7 +29,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import java.io.File
 
 class MainActivity : AppCompatActivity() {
@@ -46,7 +45,6 @@ class MainActivity : AppCompatActivity() {
     )
 
     private lateinit var webView: WebView
-    private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var loadingLayout: LinearLayout
     private lateinit var errorLayout: LinearLayout
     private lateinit var retryButton: Button
@@ -153,7 +151,6 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         webView = findViewById(R.id.webView)
-        swipeRefresh = findViewById(R.id.swipeRefresh)
         loadingLayout = findViewById(R.id.loadingLayout)
         errorLayout = findViewById(R.id.errorLayout)
         retryButton = findViewById(R.id.retryButton)
@@ -171,16 +168,6 @@ class MainActivity : AppCompatActivity() {
             javaScriptCanOpenWindowsAutomatically = true
         }
 
-        // Pull-to-refresh: solo se dispara cuando la página está arriba del todo
-        // (si el usuario está scrolleado, el gesto lo consume la propia página)
-        swipeRefresh.setColorSchemeColors(
-            ContextCompat.getColor(this, R.color.purple_500)
-        )
-        swipeRefresh.setOnChildScrollUpCallback { _, _ -> webView.scrollY > 0 }
-        swipeRefresh.setOnRefreshListener {
-            webView.reload()
-        }
-
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
@@ -190,7 +177,6 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 loadingLayout.visibility = View.GONE
-                swipeRefresh.isRefreshing = false
 
                 // Detectar si la página cargada es JSON puro (respuesta de API)
                 // Esto ocurre cuando el historial tiene URLs de endpoints que
@@ -536,13 +522,11 @@ class MainActivity : AppCompatActivity() {
         errorLayout.visibility = View.GONE
         loadingLayout.visibility = View.VISIBLE
         webView.visibility = View.VISIBLE
-        swipeRefresh.isRefreshing = false
     }
 
     private fun showError() {
         webView.visibility = View.GONE
         loadingLayout.visibility = View.GONE
-        swipeRefresh.isRefreshing = false
         errorLayout.visibility = View.VISIBLE
         retryButton.isEnabled = true
         retryButton.text = getString(R.string.error_retry)
